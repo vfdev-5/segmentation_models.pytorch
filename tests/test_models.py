@@ -84,6 +84,14 @@ def test_pspnet(encoder_name):
     _test_pretrained_model(smp.PSPNet, encoder_name, get_pretrained_weights_name(encoder_name))
 
 
+@pytest.mark.parametrize('encoder_name', _select_names(ENCODERS, k=1))
+def test_refinenet(encoder_name):
+    _test_forward_backward(smp.RefineNet, encoder_name)
+    _test_forward_backward(smp.RefineNet, encoder_name, ignore_stem_output=False)
+    _test_forward_backward(smp.RefineNet, encoder_name, ignore_stem_output=False, classes=10, activation='softmax')
+    _test_pretrained_model(smp.RefineNet, encoder_name, get_pretrained_weights_name(encoder_name))
+
+
 @pytest.mark.skipif(importlib.util.find_spec('inplace_abn') is None, reason='')
 def test_inplace_abn():
     _test_forward_backward(smp.Unet, 'resnet18', decoder_use_batchnorm='inplace')
