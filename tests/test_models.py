@@ -11,7 +11,11 @@ IS_TRAVIS = os.environ.get('TRAVIS', False)
 
 
 def get_encoders():
-    exclude = ['senet154', 'resnext101_32x48d']
+    exclude = [
+        'senet154',
+        'resnext101_32x48d',
+        'mobilenetv2_extended_output'  # excluded as works with LightWeightRefineNetDecoder only
+    ]
 
     encoders = smp.encoders.get_encoder_names()
     if IS_TRAVIS:
@@ -90,6 +94,13 @@ def test_refinenet(encoder_name):
     _test_forward_backward(smp.RefineNet, encoder_name, ignore_stem_output=False)
     _test_forward_backward(smp.RefineNet, encoder_name, ignore_stem_output=False, classes=10, activation='softmax')
     _test_pretrained_model(smp.RefineNet, encoder_name, get_pretrained_weights_name(encoder_name))
+
+
+@pytest.mark.parametrize('encoder_name', _select_names(ENCODERS, k=1))
+def test_lwrefinenetv2(encoder_name):
+    _test_forward_backward(smp.LightWeightRefineNetV2, encoder_name)
+    _test_forward_backward(smp.LightWeightRefineNetV2, encoder_name, classes=10, activation='softmax')
+    _test_pretrained_model(smp.LightWeightRefineNetV2, encoder_name, get_pretrained_weights_name(encoder_name))
 
 
 def test_lwrefinenet():

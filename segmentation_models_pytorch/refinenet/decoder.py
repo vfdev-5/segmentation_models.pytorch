@@ -90,6 +90,8 @@ class LightWeightRefineNetDecoder(Model):
     https://arxiv.org/abs/1810.03272
     """
 
+    num_inputs = 6
+
     def __init__(self,
                  encoder_channels,
                  num_refine_channels=256,
@@ -100,7 +102,7 @@ class LightWeightRefineNetDecoder(Model):
         if not isinstance(encoder_channels, Sequence):
             raise TypeError("encoder_channels should be a Sequence")
 
-        if len(encoder_channels) != 6:
+        if len(encoder_channels) != self.num_inputs:
             raise TypeError("encoder_channels should contain 6 entries")
 
         if upsampling_config is None:
@@ -159,4 +161,28 @@ class LightWeightRefineNetDecoder(Model):
         if self.output_upsampling_factor is not None:
             output = F.interpolate(output, scale_factor=self.output_upsampling_factor,
                                    **self.upsampling_config)
+        return output
+
+
+class LightWeightRefineNetDecoderV2(LightWeightRefineNetDecoder):
+    """Another decoder based on Light-Weight RefineNet architecture described in
+    'Light-Weight RefineNet for Real-Time Semantic Segmentation',
+    https://arxiv.org/abs/1810.03272
+
+    This decoder works on 5 encoder entries.
+    """
+
+    num_inputs = 5
+
+    def refine(self, x):
+        y = [None] * len(x)
+        for i, adapt in enumerate(self.adaptation_blocks):
+            y[i] = adapt(x[i])
+
+        output = None
+        for i, block in zip(y, self.crp_conv_blocks):
+            if output is not None:
+                output = F.interpolate(output, size=(i.shape[2], i.shape[3]), **self.upsampling_config)
+                i = output + i
+            output = block(i)
         return output
