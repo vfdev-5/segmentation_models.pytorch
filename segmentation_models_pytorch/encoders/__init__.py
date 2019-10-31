@@ -9,6 +9,7 @@ from .densenet import densenet_encoders
 from .inceptionresnetv2 import inceptionresnetv2_encoders
 from .inceptionv4 import inceptionv4_encoders
 from .efficientnet import efficient_net_encoders
+from .mobilenetv2 import mobilenetv2_encoders
 
 
 from ._preprocessing import preprocess_input
@@ -22,6 +23,7 @@ encoders.update(densenet_encoders)
 encoders.update(inceptionresnetv2_encoders)
 encoders.update(inceptionv4_encoders)
 encoders.update(efficient_net_encoders)
+encoders.update(mobilenetv2_encoders)
 
 
 def get_encoder(name, encoder_weights=None):

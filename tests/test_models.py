@@ -92,6 +92,13 @@ def test_refinenet(encoder_name):
     _test_pretrained_model(smp.RefineNet, encoder_name, get_pretrained_weights_name(encoder_name))
 
 
+def test_lwrefinenet():
+    encoder_name = "mobilenetv2_extended_output"
+    _test_forward_backward(smp.LightWeightRefineNet, encoder_name)
+    _test_forward_backward(smp.LightWeightRefineNet, encoder_name, classes=10, activation='softmax')
+    _test_pretrained_model(smp.LightWeightRefineNet, encoder_name, get_pretrained_weights_name(encoder_name))
+
+
 @pytest.mark.skipif(importlib.util.find_spec('inplace_abn') is None, reason='')
 def test_inplace_abn():
     _test_forward_backward(smp.Unet, 'resnet18', decoder_use_batchnorm='inplace')

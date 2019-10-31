@@ -28,7 +28,7 @@ class MRF(nn.Module):
     Paper's Multi-Resolution Fusion module
     """
 
-    def __init__(self, encoder_channels, out_channels):
+    def __init__(self, encoder_channels, out_channels, upsampling_config=None):
         super(MRF, self).__init__()
 
         if not isinstance(encoder_channels, Sequence):
@@ -36,6 +36,11 @@ class MRF(nn.Module):
 
         if len(encoder_channels) < 2:
             raise ValueError("encoder_channels should have at least 2 values")
+
+        if upsampling_config is None:
+            upsampling_config = {'mode': 'nearest', 'align_corners': None}
+
+        self.upsampling_config = upsampling_config
 
         self.convs = nn.ModuleList([
             nn.Conv2d(n, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
@@ -52,20 +57,24 @@ class MRF(nn.Module):
             max([x.shape[3] for x in xs]),  # w
         ]
         output = self.convs[0](xs[0])
-        output = F.interpolate(output, size=out_size, mode='nearest')
+        output = F.interpolate(output, size=out_size, **self.upsampling_config)
         for op, x in zip(self.convs[1:], xs[1:]):
-            output += F.interpolate(op(x), size=out_size, mode='nearest')
+            output += F.interpolate(op(x), size=out_size, **self.upsampling_config)
 
         return output
 
 
 class CRP(nn.Module):
+    """
+    Improved Chain Residual Pooling from
+    https://github.com/guosheng/refinenet#network-architecture-and-implementation
+    """
 
     def __init__(self, channels):
         super(CRP, self).__init__()
 
         self.relu = nn.ReLU(inplace=True)
-        self.pool_convs = nn.ModuleList([
+        self.conv_pools = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False),
                 nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
@@ -76,16 +85,34 @@ class CRP(nn.Module):
     def forward(self, x):
         output = self.relu(x)
         x = output
-        for op in self.pool_convs:
+        for op in self.conv_pools:
             x = op(x)
             output = output + x
 
         return output
 
 
+class LWCRP(CRP):
+    """
+    Light-weight Chain Residual Pooling from "Light-Weight RefineNet forReal-Time
+    Semantic Segmentation"
+    """
+
+    def __init__(self, channels):
+        super(LWCRP, self).__init__(channels)
+        self.relu = nn.ReLU6(inplace=True)
+        self.conv_pools = nn.ModuleList([
+            nn.Sequential(
+                nn.MaxPool2d(kernel_size=5, stride=1, padding=2),
+                nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False)
+            )
+            for _ in range(4)
+        ])
+
+
 class RefineNetBlock(nn.Module):
 
-    def __init__(self, encoder_channels, out_channels):
+    def __init__(self, encoder_channels, out_channels, upsampling_config=None):
         super(RefineNetBlock, self).__init__()
         if not isinstance(encoder_channels, Sequence):
             raise TypeError("encoder_channels should be a Sequence")
@@ -101,7 +128,9 @@ class RefineNetBlock(nn.Module):
             )
             for c in encoder_channels
         ])
-        self.mrf = MRF(encoder_channels, out_channels=out_channels) if len(encoder_channels) > 1 else lambda x: x[0]
+        self.mrf = MRF(encoder_channels,
+                       out_channels=out_channels,
+                       upsampling_config=upsampling_config) if len(encoder_channels) > 1 else lambda x: x[0]
         self.crp = CRP(out_channels)
         self.output_conv = RCU(out_channels)
 

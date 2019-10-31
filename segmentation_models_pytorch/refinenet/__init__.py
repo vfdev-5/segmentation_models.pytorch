@@ -1,1 +1,1 @@
-from .model import RefineNet
+from .model import RefineNet, LightWeightRefineNet

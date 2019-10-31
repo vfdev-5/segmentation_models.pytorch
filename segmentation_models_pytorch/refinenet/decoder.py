@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base.model import Model
-from .blocks import RefineNetBlock, RCU
+from .blocks import RefineNetBlock, RCU, LWCRP
 
 
 class RefineNetDecoder(Model):
@@ -17,10 +17,16 @@ class RefineNetDecoder(Model):
                  encoder_channels,
                  num_refine_channels=256,
                  final_channels=10,
-                 output_upsampling_factor=None):
+                 output_upsampling_factor=None,
+                 upsampling_config=None):
         super(RefineNetDecoder, self).__init__()
         if not isinstance(encoder_channels, Sequence):
             raise TypeError("encoder_channels should be a Sequence")
+
+        if upsampling_config is None:
+            upsampling_config = {'mode': 'bilinear', 'align_corners': True}
+
+        self.upsampling_config = upsampling_config
 
         refine_channels = [int(num_refine_channels * (1 + c / num_refine_channels // 8)) for c in encoder_channels]
         # for num_refine_channels=256 and encoder_channels=reversed([256, 512, 1024, 2048])
@@ -74,6 +80,83 @@ class RefineNetDecoder(Model):
         output = self.classifier(output)
 
         if self.output_upsampling_factor is not None:
+            output = F.interpolate(output, scale_factor=self.output_upsampling_factor, **self.upsampling_config)
+        return output
+
+
+class LightWeightRefineNetDecoder(Model):
+    """Decoder based on Light-Weight RefineNet architecture described in
+    'Light-Weight RefineNet for Real-Time Semantic Segmentation',
+    https://arxiv.org/abs/1810.03272
+    """
+
+    def __init__(self,
+                 encoder_channels,
+                 num_refine_channels=256,
+                 final_channels=10,
+                 output_upsampling_factor=None,
+                 upsampling_config=None):
+        super(LightWeightRefineNetDecoder, self).__init__()
+        if not isinstance(encoder_channels, Sequence):
+            raise TypeError("encoder_channels should be a Sequence")
+
+        if len(encoder_channels) != 6:
+            raise TypeError("encoder_channels should contain 6 entries")
+
+        if upsampling_config is None:
+            upsampling_config = {'mode': 'bilinear', 'align_corners': True}
+
+        self.upsampling_config = upsampling_config
+
+        adaptation_blocks = []
+        conv_params = dict(kernel_size=1, stride=1, padding=0, bias=False)
+        for c in encoder_channels:
+            adaptation_blocks.append(
+                nn.Conv2d(c, num_refine_channels, **conv_params),
+            )
+
+        crp_conv_blocks = []
+        for _ in range(3):
+            crp_conv_blocks.append(
+                nn.Sequential(
+                    LWCRP(num_refine_channels),
+                    nn.Conv2d(num_refine_channels, num_refine_channels, **conv_params),
+                )
+            )
+        crp_conv_blocks.append(LWCRP(num_refine_channels))
+
+        self.adaptation_blocks = nn.ModuleList(adaptation_blocks)
+        self.crp_conv_blocks = nn.ModuleList(crp_conv_blocks)
+        self.classifier = nn.Conv2d(num_refine_channels, final_channels, kernel_size=3, stride=1, padding=1, bias=True)
+        self.output_upsampling_factor = output_upsampling_factor
+
+    def refine(self, x):
+        y = [None] * len(x)
+        for i, adapt in enumerate(self.adaptation_blocks):
+            y[i] = adapt(x[i])
+
+        # sum up 4 top outputs
+        z = [y[0] + y[1],
+             y[2] + y[3],
+             y[4],
+             y[5]]
+
+        output = None
+        for i, block in zip(z, self.crp_conv_blocks):
+            if output is not None:
+                output = F.interpolate(output, size=(i.shape[2], i.shape[3]), **self.upsampling_config)
+                i = output + i
+            output = block(i)
+        return output
+
+    def forward(self, x):
+        if not (isinstance(x, Sequence) and len(x) == len(self.adaptation_blocks)):
+            raise TypeError("Input x should be a sequence of len {}, but given: {} (len={})"
+                            .format(len(self.adaptation_blocks), type(x), len(x) if isinstance(x, Sequence) else None))
+        output = self.refine(x)
+        output = self.classifier(output)
+
+        if self.output_upsampling_factor is not None:
             output = F.interpolate(output, scale_factor=self.output_upsampling_factor,
-                                   mode='bilinear', align_corners=False)
+                                   **self.upsampling_config)
         return output
