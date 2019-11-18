@@ -49,6 +49,7 @@ class SimpleSegmentationModel(nn.Module):
         features = self.backbone(x)
 
         result = OrderedDict()
+        # Keep only the deepest feature map
         x = features[0]
         x = self.classifier(x)
         x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
